@@ -7,7 +7,6 @@ import java.io.FileNotFoundException
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 class LogFileService(private val context: Context) {
     private val headingRegex = Regex("^(#{1,6})\\s+(.+?)\\s*#*\\s*$")
@@ -28,7 +27,7 @@ class LogFileService(private val context: Context) {
         val root = DocumentFile.fromTreeUri(context, rootUri)
             ?: error("The selected log root is no longer available.")
 
-        val today = LocalDate.now()
+        val today = DailyPathPattern.effectiveDate(config.settings.dayBoundaryDelayMinutes)
         val file = resolveDailyFile(root, config.settings.dailyPathPattern, today)
         val existing = if (file.length() > 0) readText(file.uri) else ""
         val base = existing.ifBlank {
@@ -43,7 +42,7 @@ class LogFileService(private val context: Context) {
     }
 
     private fun resolveDailyFile(root: DocumentFile, pattern: String, date: LocalDate): DocumentFile {
-        val relativePath = resolvePathPattern(pattern, date)
+        val relativePath = DailyPathPattern.render(pattern, date)
         val parts = relativePath.split('/').map { it.trim() }.filter { it.isNotBlank() }
         require(parts.isNotEmpty()) { "Daily path pattern resolved to an empty path." }
 
@@ -60,19 +59,6 @@ class LogFileService(private val context: Context) {
             ?: throw FileNotFoundException("Could not create daily note: $fileName")
     }
 
-    private fun resolvePathPattern(pattern: String, date: LocalDate): String {
-        val year = date.format(DateTimeFormatter.ofPattern("yyyy", Locale.US))
-        val month = date.format(DateTimeFormatter.ofPattern("MM", Locale.US))
-        val day = date.format(DateTimeFormatter.ofPattern("dd", Locale.US))
-        return pattern
-            .replace("yyyy", year)
-            .replace("YYYY", year)
-            .replace("MM", month)
-            .replace("mm", month)
-            .replace("dd", day)
-            .replace("DD", day)
-    }
-
     private fun buildItemLine(item: QuickLogItem, appendedText: String): String {
         val bullet = when (item.bulletType) {
             BulletType.Ordered -> "1. "
@@ -84,7 +70,7 @@ class LogFileService(private val context: Context) {
         } else {
             ""
         }
-        val body = listOf(item.title, appendedText)
+        val body = listOf(item.insertText.ifBlank { item.title }, appendedText)
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .joinToString(" ")
@@ -120,9 +106,10 @@ class LogFileService(private val context: Context) {
             parsed != null && parsed.level <= headingLevel
         }.let { if (it == -1) lines.size else it }
 
+        val bottomInsertAt = previousNonBlankIndex(lines, sectionEnd - 1) + 1
         val insertAt = when (item.insertPosition) {
             InsertPosition.Top -> headingIndex + 1
-            InsertPosition.Bottom -> sectionEnd
+            InsertPosition.Bottom -> bottomInsertAt.coerceAtLeast(headingIndex + 1)
         }
         lines.add(insertAt, line)
         return lines.joinToString("\n") + "\n"
@@ -141,6 +128,13 @@ class LogFileService(private val context: Context) {
     private inline fun List<String>.indexOfFirstAfter(start: Int, predicate: (String) -> Boolean): Int {
         for (index in start until size) {
             if (predicate(this[index])) return index
+        }
+        return -1
+    }
+
+    private fun previousNonBlankIndex(lines: List<String>, start: Int): Int {
+        for (index in start downTo 0) {
+            if (lines[index].isNotBlank()) return index
         }
         return -1
     }

@@ -1,15 +1,17 @@
 package dev.quicklogger
 
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.provider.DocumentsContract
+import android.provider.OpenableColumns
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -86,6 +88,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
@@ -118,12 +123,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 class MainActivity : ComponentActivity() {
     private val repository by lazy { ConfigRepository(applicationContext) }
@@ -131,8 +139,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            QuickLoggerTheme {
-                QuickLoggerApp(repository)
+            val config by repository.configFlow.collectAsState(initial = QuickLoggerConfig())
+            QuickLoggerTheme(config.settings.themeMode) {
+                QuickLoggerApp(repository, config)
             }
         }
     }
@@ -146,14 +155,14 @@ private sealed interface Screen {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun QuickLoggerApp(repository: ConfigRepository) {
+private fun QuickLoggerApp(repository: ConfigRepository, config: QuickLoggerConfig) {
     val context = LocalContext.current
     val activity = context as? Activity
-    val config by repository.configFlow.collectAsState(initial = QuickLoggerConfig())
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var textItem by remember { mutableStateOf<QuickLogItem?>(null) }
+    val darkTheme = shouldUseDarkTheme(config.settings.themeMode)
 
     BackHandler(screen !is Screen.Home) { screen = Screen.Home }
 
@@ -197,7 +206,7 @@ private fun QuickLoggerApp(repository: ConfigRepository) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AppBackground)
+                .background(appBackground(darkTheme))
                 .padding(padding),
         ) {
             when (val current = screen) {
@@ -224,7 +233,6 @@ private fun QuickLoggerApp(repository: ConfigRepository) {
                     onSaved = { settings ->
                         scope.launch {
                             repository.saveSettings(settings)
-                            snackbarHostState.showSnackbar("Settings saved")
                         }
                     },
                     onMessage = { message ->
@@ -282,17 +290,17 @@ private fun HomeScreen(
             .fillMaxSize()
             .padding(horizontal = 18.dp),
     ) {
-        AnimatedVisibility(config.settings.logRootUri == null || config.settings.templateUri == null) {
+        if (config.settings.logRootUri == null || config.settings.templateUri == null) {
             SetupCard(onSettingsClick)
         }
         if (config.items.isEmpty()) {
             EmptyState(onAddClick)
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(148.dp),
+                columns = GridCells.Adaptive(108.dp),
                 contentPadding = PaddingValues(vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 items(config.items, key = { it.id }) { item ->
                     QuickLogTile(
@@ -309,7 +317,7 @@ private fun HomeScreen(
 @Composable
 private fun SetupCard(onSettingsClick: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE9B6)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
         shape = RoundedCornerShape(26.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -321,7 +329,7 @@ private fun SetupCard(onSettingsClick: () -> Unit) {
         ) {
             Column(Modifier.weight(1f)) {
                 Text("Setup needed", fontWeight = FontWeight.Bold)
-                Text("Pick a log root and template before logging.", color = Color(0xFF5B4522))
+                Text("Pick a log root and template before logging.", color = MaterialTheme.colorScheme.secondary)
             }
             OutlinedButton(onClick = onSettingsClick) {
                 Text("Settings")
@@ -355,36 +363,37 @@ private fun EmptyState(onAddClick: () -> Unit) {
 @Composable
 private fun QuickLogTile(item: QuickLogItem, onClick: () -> Unit, onLongClick: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.86f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        shape = RoundedCornerShape(30.dp),
+        shape = RoundedCornerShape(24.dp),
         modifier = Modifier
-            .height(148.dp)
+            .height(112.dp)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(18.dp),
+                .padding(12.dp),
             verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Icon(
                 imageVector = iconFor(item.icon).vector,
                 contentDescription = null,
-                tint = Color(0xFF1E3A34),
-                modifier = Modifier.size(36.dp),
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(28.dp),
             )
             Column {
                 Text(
                     item.title.ifBlank { "Untitled" },
                     fontWeight = FontWeight.Black,
-                    fontSize = 18.sp,
+                    fontSize = 15.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
                     item.heading,
-                    color = Color(0xFF5F6F64),
+                    color = MaterialTheme.colorScheme.secondary,
+                    fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -402,7 +411,14 @@ private fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var draft by remember(settings) { mutableStateOf(settings) }
+    var delayText by remember(settings.dayBoundaryDelayMinutes) {
+        mutableStateOf(settings.dayBoundaryDelayMinutes.toString())
+    }
     val scope = rememberCoroutineScope()
+    fun updateSettings(updated: AppSettings) {
+        draft = updated
+        onSaved(updated)
+    }
 
     val rootPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
@@ -411,16 +427,14 @@ private fun SettingsScreen(
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
         )
         val updated = draft.copy(logRootUri = uri.toString())
-        draft = updated
-        onSaved(updated)
+        updateSettings(updated)
     }
 
     val templatePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         val updated = draft.copy(templateUri = uri.toString())
-        draft = updated
-        onSaved(updated)
+        updateSettings(updated)
     }
 
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
@@ -466,25 +480,48 @@ private fun SettingsScreen(
                 Spacer(Modifier.width(8.dp))
                 Text(if (draft.logRootUri == null) "Pick log root" else "Change log root")
             }
-            UriPreview(draft.logRootUri)
+            UriPreview(draft.logRootUri, tree = true)
             Button(onClick = { templatePicker.launch(arrayOf("text/*", "application/octet-stream")) }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.TextSnippet, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text(if (draft.templateUri == null) "Pick template" else "Change template")
             }
-            UriPreview(draft.templateUri)
+            UriPreview(draft.templateUri, tree = false)
             OutlinedTextField(
                 value = draft.dailyPathPattern,
-                onValueChange = { draft = draft.copy(dailyPathPattern = it) },
+                onValueChange = { updateSettings(draft.copy(dailyPathPattern = it)) },
                 label = { Text("Daily path pattern") },
-                supportingText = { Text("Default: yyyy/yyyy-MM/yyyy-MM-dd.md") },
+                supportingText = {
+                    Text("Today: ${DailyPathPattern.render(draft.dailyPathPattern, DailyPathPattern.effectiveDate(draft.dayBoundaryDelayMinutes))}")
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
-            Button(onClick = { onSaved(draft) }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Check, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text("Save settings")
+            OutlinedTextField(
+                value = delayText,
+                onValueChange = { value ->
+                    if (value.all(Char::isDigit)) {
+                        delayText = value
+                        updateSettings(draft.copy(dayBoundaryDelayMinutes = value.toIntOrNull() ?: 0))
+                    }
+                },
+                label = { Text("Day boundary delay, minutes") },
+                supportingText = { Text("Used only for choosing the daily file after midnight.") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+            )
+        }
+
+        SettingsCard(title = "Appearance") {
+            Text("Theme", fontWeight = FontWeight.Bold)
+            FlowRowCompat(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ThemeMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = draft.themeMode == mode,
+                        onClick = { updateSettings(draft.copy(themeMode = mode)) },
+                        label = { Text(mode.name) },
+                    )
+                }
             }
         }
 
@@ -514,7 +551,7 @@ private fun SettingsScreen(
 @Composable
 private fun SettingsCard(title: String, content: @Composable () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.88f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)),
         shape = RoundedCornerShape(28.dp),
     ) {
         Column(
@@ -528,11 +565,12 @@ private fun SettingsCard(title: String, content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun UriPreview(uri: String?) {
+private fun UriPreview(uri: String?, tree: Boolean) {
+    val context = LocalContext.current
     if (uri != null) {
         Text(
-            uri,
-            color = Color(0xFF607568),
+            readableUri(context, uri, tree),
+            color = MaterialTheme.colorScheme.secondary,
             fontSize = 12.sp,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -549,6 +587,7 @@ private fun ItemEditorScreen(
 ) {
     var item by remember(initial?.id) { mutableStateOf(initial ?: QuickLogItem()) }
     var iconPickerOpen by remember { mutableStateOf(false) }
+    var suggestionsOpen by remember { mutableStateOf(false) }
     var headingSuggestions by remember { mutableStateOf(emptyList<HeadingSuggestion>()) }
 
     LaunchedEffect(Unit) {
@@ -567,54 +606,84 @@ private fun ItemEditorScreen(
                 modifier = Modifier
                     .size(72.dp)
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.9f))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f))
                     .clickable { iconPickerOpen = true },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
                     imageVector = iconFor(item.icon).vector,
                     contentDescription = null,
-                    tint = Color(0xFF1E3A34),
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(36.dp),
                 )
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text("Icon", fontWeight = FontWeight.Bold)
-                Text("Tap to choose a flat Material symbol.", color = Color(0xFF607568))
+                Text("Tap to choose a flat Material symbol.", color = MaterialTheme.colorScheme.secondary)
             }
         }
 
         OutlinedTextField(
             value = item.title,
             onValueChange = { item = item.copy(title = it) },
-            label = { Text("Item title") },
+            label = { Text("Display title") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
         OutlinedTextField(
-            value = item.heading,
-            onValueChange = { item = item.copy(heading = it) },
-            label = { Text("Heading") },
-            supportingText = { Text("Example: Consumption. You can also enter # Consumption.") },
+            value = item.insertText,
+            onValueChange = { item = item.copy(insertText = it) },
+            label = { Text("Text to insert") },
+            supportingText = { Text("Example: 200mg ibuprofen") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
-
-        if (headingSuggestions.isNotEmpty()) {
-            Text("Suggested from template", fontWeight = FontWeight.Bold)
-            FlowRowCompat(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                headingSuggestions.forEach { suggestion ->
-                    AssistChip(
-                        onClick = {
-                            item = item.copy(heading = suggestion.text, headingLevel = suggestion.level)
-                        },
-                        label = { Text(suggestion.label) },
-                    )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            OutlinedTextField(
+                value = item.heading,
+                onValueChange = { item = item.copy(heading = it) },
+                label = { Text("Heading") },
+                supportingText = { Text("Rendered: ${renderedHeading(item.heading, item.headingLevel)}") },
+                modifier = Modifier.weight(1f),
+                singleLine = true,
+            )
+            Box {
+                OutlinedButton(
+                    onClick = { suggestionsOpen = true },
+                    enabled = headingSuggestions.isNotEmpty(),
+                    modifier = Modifier.padding(top = 8.dp),
+                ) {
+                    Text("Suggest")
+                }
+                DropdownMenu(
+                    expanded = suggestionsOpen,
+                    onDismissRequest = { suggestionsOpen = false },
+                ) {
+                    headingSuggestions.forEach { suggestion ->
+                        DropdownMenuItem(
+                            text = { Text(suggestion.label) },
+                            onClick = {
+                                item = item.copy(heading = suggestion.text, headingLevel = suggestion.level)
+                                suggestionsOpen = false
+                            },
+                        )
+                    }
                 }
             }
         }
-
+        OutlinedTextField(
+            value = renderedHeading(item.heading, item.headingLevel),
+            onValueChange = {},
+            label = { Text("Rendered heading") },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = false,
+            singleLine = true,
+        )
         Text("Heading level", fontWeight = FontWeight.Bold)
         FlowRowCompat(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             (1..6).forEach { level ->
@@ -655,7 +724,7 @@ private fun ItemEditorScreen(
 
         Button(
             onClick = { onSave(item) },
-            enabled = item.heading.isNotBlank() && item.title.isNotBlank(),
+            enabled = item.heading.isNotBlank() && item.title.isNotBlank() && item.insertText.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
         ) {
             Text("Save item")
@@ -749,7 +818,11 @@ private fun IconPickerDialog(selected: String, onDismiss: () -> Unit, onPick: (S
             ) {
                 items(StandardIcons) { icon ->
                     Surface(
-                        color = if (icon.key == selected) Color(0xFFFFD36E) else Color(0xFFF5F0E5),
+                        color = if (icon.key == selected) {
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                        } else {
+                            MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
+                        },
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier
                             .size(48.dp)
@@ -759,7 +832,7 @@ private fun IconPickerDialog(selected: String, onDismiss: () -> Unit, onPick: (S
                             Icon(
                                 imageVector = icon.vector,
                                 contentDescription = icon.label,
-                                tint = Color(0xFF1E3A34),
+                                tint = MaterialTheme.colorScheme.primary,
                             )
                         }
                     }
@@ -775,15 +848,27 @@ private fun IconPickerDialog(selected: String, onDismiss: () -> Unit, onPick: (S
 }
 
 @Composable
-private fun QuickLoggerTheme(content: @Composable () -> Unit) {
-    MaterialTheme(
-        colorScheme = lightColorScheme(
+private fun QuickLoggerTheme(themeMode: ThemeMode, content: @Composable () -> Unit) {
+    val darkTheme = shouldUseDarkTheme(themeMode)
+    val colors = if (darkTheme) {
+        darkColorScheme(
+            primary = Color(0xFFE6D18B),
+            onPrimary = Color(0xFF1C1607),
+            secondary = Color(0xFFEAB676),
+            surface = Color(0xFF17211D),
+            background = Color(0xFF0E1512),
+        )
+    } else {
+        lightColorScheme(
             primary = Color(0xFF1E3A34),
             onPrimary = Color.White,
             secondary = Color(0xFFB26B2B),
             surface = Color(0xFFFAF7F0),
             background = Color(0xFFFAF7F0),
-        ),
+        )
+    }
+    MaterialTheme(
+        colorScheme = colors,
         typography = MaterialTheme.typography.copy(
             displayLarge = MaterialTheme.typography.displayLarge.copy(fontFamily = FontFamily.Serif),
             headlineLarge = MaterialTheme.typography.headlineLarge.copy(fontFamily = FontFamily.Serif),
@@ -792,9 +877,59 @@ private fun QuickLoggerTheme(content: @Composable () -> Unit) {
     )
 }
 
-private val AppBackground = Brush.verticalGradient(
-    colors = listOf(Color(0xFFFAF7F0), Color(0xFFE4EFE7), Color(0xFFF9E6BA)),
-)
+@Composable
+private fun shouldUseDarkTheme(mode: ThemeMode): Boolean = when (mode) {
+    ThemeMode.System -> isSystemInDarkTheme()
+    ThemeMode.Light -> false
+    ThemeMode.Dark -> true
+}
+
+private fun appBackground(darkTheme: Boolean): Brush =
+    if (darkTheme) {
+        Brush.verticalGradient(
+            colors = listOf(Color(0xFF0E1512), Color(0xFF16231D), Color(0xFF251F13)),
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(Color(0xFFFAF7F0), Color(0xFFE4EFE7), Color(0xFFF9E6BA)),
+        )
+    }
+
+private val headingRegex = Regex("^(#{1,6})\\s+(.+?)\\s*#*\\s*$")
+
+private fun renderedHeading(heading: String, fallbackLevel: Int): String {
+    val match = headingRegex.matchEntire(heading.trim())
+    val level = match?.groupValues?.get(1)?.length ?: fallbackLevel
+    val text = match?.groupValues?.get(2)?.trim() ?: heading.trim().ifBlank { "Log" }
+    return "${"#".repeat(level.coerceIn(1, 6))} $text"
+}
+
+private fun readableUri(context: Context, uriString: String, tree: Boolean): String {
+    val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return uriString
+    if (tree) {
+        val treeId = runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+        if (!treeId.isNullOrBlank()) {
+            val decoded = URLDecoder.decode(treeId, StandardCharsets.UTF_8.name())
+            val volume = decoded.substringBefore(':')
+            val relative = decoded.substringAfter(':', "")
+            return when {
+                volume == "primary" && relative.isBlank() -> "/storage/emulated/0"
+                volume == "primary" -> "/storage/emulated/0/$relative"
+                relative.isBlank() -> "$volume:"
+                else -> "$volume:/$relative"
+            }
+        }
+    }
+
+    val displayName = runCatching {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)
+            ?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            }
+    }.getOrNull()
+
+    return displayName ?: uri.lastPathSegment ?: uriString
+}
 
 private data class LogIcon(
     val key: String,

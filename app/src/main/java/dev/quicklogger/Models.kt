@@ -6,6 +6,7 @@ import java.util.UUID
 
 enum class InsertPosition { Top, Bottom }
 enum class BulletType { Ordered, Unordered, None }
+enum class ThemeMode { System, Light, Dark }
 
 data class QuickLoggerConfig(
     val settings: AppSettings = AppSettings(),
@@ -38,6 +39,8 @@ data class AppSettings(
     val logRootUri: String? = null,
     val templateUri: String? = null,
     val dailyPathPattern: String = "yyyy/yyyy-MM/yyyy-MM-dd.md",
+    val dayBoundaryDelayMinutes: Int = 0,
+    val themeMode: ThemeMode = ThemeMode.System,
 ) {
     companion object {
         fun fromJsonObject(json: JSONObject?): AppSettings = AppSettings(
@@ -45,6 +48,8 @@ data class AppSettings(
             templateUri = json?.optNullableString("templateUri"),
             dailyPathPattern = json?.optString("dailyPathPattern", "yyyy/yyyy-MM/yyyy-MM-dd.md")
                 ?: "yyyy/yyyy-MM/yyyy-MM-dd.md",
+            dayBoundaryDelayMinutes = json?.optInt("dayBoundaryDelayMinutes", 0)?.coerceAtLeast(0) ?: 0,
+            themeMode = enumValueOrDefault(json?.optString("themeMode").orEmpty(), ThemeMode.System),
         )
     }
 }
@@ -57,6 +62,7 @@ data class QuickLogItem(
     val matchHeadingLevel: Boolean = false,
     val insertPosition: InsertPosition = InsertPosition.Bottom,
     val title: String = "",
+    val insertText: String = "",
     val icon: String = "edit",
     val addTimestamp: Boolean = true,
     val bulletType: BulletType = BulletType.Ordered,
@@ -71,6 +77,7 @@ data class QuickLogItem(
             matchHeadingLevel = json.optBoolean("matchHeadingLevel", false),
             insertPosition = enumValueOrDefault(json.optString("insertPosition"), InsertPosition.Bottom),
             title = json.optString("title", ""),
+            insertText = json.optString("insertText").ifBlank { json.optString("title", "") },
             icon = json.optString("icon", "edit"),
             addTimestamp = json.optBoolean("addTimestamp", true),
             bulletType = enumValueOrDefault(json.optString("bulletType"), BulletType.Ordered),
@@ -90,6 +97,8 @@ fun AppSettings.toJsonObject(): JSONObject = JSONObject()
     .put("logRootUri", logRootUri)
     .put("templateUri", templateUri)
     .put("dailyPathPattern", dailyPathPattern)
+    .put("dayBoundaryDelayMinutes", dayBoundaryDelayMinutes)
+    .put("themeMode", themeMode.name)
 
 fun QuickLogItem.toJsonObject(): JSONObject = JSONObject()
     .put("id", id)
@@ -99,6 +108,7 @@ fun QuickLogItem.toJsonObject(): JSONObject = JSONObject()
     .put("matchHeadingLevel", matchHeadingLevel)
     .put("insertPosition", insertPosition.name)
     .put("title", title)
+    .put("insertText", insertText)
     .put("icon", icon)
     .put("addTimestamp", addTimestamp)
     .put("bulletType", bulletType.name)

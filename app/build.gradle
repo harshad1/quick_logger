@@ -1,6 +1,12 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.plugin.compose"
 
+def signingPropertiesFile = rootProject.file("signing.properties")
+def signingProperties = new Properties()
+if (signingPropertiesFile.exists()) {
+    signingPropertiesFile.withInputStream { signingProperties.load(it) }
+}
+
 android {
     namespace "dev.quicklogger"
     compileSdk 36
@@ -15,6 +21,25 @@ android {
 
     buildFeatures {
         compose true
+    }
+
+    signingConfigs {
+        release {
+            if (signingPropertiesFile.exists()) {
+                storeFile rootProject.file(signingProperties["storeFile"])
+                storePassword signingProperties["storePassword"]
+                keyAlias signingProperties["keyAlias"]
+                keyPassword signingProperties["keyPassword"]
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            shrinkResources false
+        }
     }
 }
 

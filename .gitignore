@@ -2,5 +2,6 @@
 build/
 app/build/
 local.properties
+signing.properties
 *.iml
 .idea/

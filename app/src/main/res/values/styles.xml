@@ -2,7 +2,7 @@
     <style name="Theme.QuickLogger" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:fontFamily">sans</item>
         <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">#FAF7F0</item>
-        <item name="android:statusBarColor">#FAF7F0</item>
+        <item name="android:navigationBarColor">#F4F4F5</item>
+        <item name="android:statusBarColor">#F4F4F5</item>
     </style>
 </resources>

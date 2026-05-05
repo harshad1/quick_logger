@@ -8,6 +8,12 @@ import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
+data class LogUndoSnapshot(
+    val fileUri: String,
+    val fileExisted: Boolean,
+    val previousContent: String,
+)
+
 class LogFileService(private val context: Context) {
     private val headingRegex = Regex("^(#{1,6})\\s+(.+?)\\s*#*\\s*$")
 
@@ -21,15 +27,19 @@ class LogFileService(private val context: Context) {
         }.getOrDefault(emptyList())
     }
 
-    fun logItem(config: QuickLoggerConfig, item: QuickLogItem, appendedText: String) {
+    fun logItem(config: QuickLoggerConfig, item: QuickLogItem, appendedText: String): LogUndoSnapshot {
         val rootUri = config.settings.logRootUri?.let(Uri::parse)
             ?: error("Pick a log root folder in Settings first.")
         val root = DocumentFile.fromTreeUri(context, rootUri)
             ?: error("The selected log root is no longer available.")
 
-        val today = DailyPathPattern.effectiveDate(config.settings.dayBoundaryDelayMinutes)
-        val file = resolveDailyFile(root, config.settings.dailyPathPattern, today)
-        val existing = if (file.length() > 0) readText(file.uri) else ""
+        val today = DailyPathPattern.effectiveDate(
+            config.settings.dayStartHour,
+            config.settings.dayStartMinute,
+        )
+        val resolved = resolveDailyFile(root, config.settings.dailyPathPattern, today)
+        val file = resolved.file
+        val existing = if (resolved.existed) readText(file.uri) else ""
         val base = existing.ifBlank {
             val templateUri = config.settings.templateUri?.let(Uri::parse)
                 ?: error("Pick a daily note template in Settings first.")
@@ -37,26 +47,50 @@ class LogFileService(private val context: Context) {
             SnippetInterpolator.interpolate(readText(templateUri), title)
         }
 
-        val updated = insertLine(base, item, buildItemLine(item, appendedText))
+        val updated = insertLine(base, item, buildItemLine(item, appendedText), config.settings)
         writeText(file.uri, updated)
+        return LogUndoSnapshot(
+            fileUri = file.uri.toString(),
+            fileExisted = resolved.existed,
+            previousContent = existing,
+        )
     }
 
-    private fun resolveDailyFile(root: DocumentFile, pattern: String, date: LocalDate): DocumentFile {
+    fun restore(snapshot: LogUndoSnapshot) {
+        val uri = Uri.parse(snapshot.fileUri)
+        if (snapshot.fileExisted) {
+            writeText(uri, snapshot.previousContent)
+            return
+        }
+
+        val file = DocumentFile.fromSingleUri(context, uri)
+            ?: throw FileNotFoundException("Could not resolve file to undo.")
+        if (!file.delete()) {
+            throw FileNotFoundException("Could not delete newly-created daily note.")
+        }
+    }
+
+    private fun resolveDailyFile(root: DocumentFile, pattern: String, date: LocalDate): ResolvedFile {
         val relativePath = DailyPathPattern.render(pattern, date)
         val parts = relativePath.split('/').map { it.trim() }.filter { it.isNotBlank() }
         require(parts.isNotEmpty()) { "Daily path pattern resolved to an empty path." }
 
         var directory = root
         parts.dropLast(1).forEach { segment ->
-            directory = directory.findFile(segment)?.takeIf { it.isDirectory }
+            directory = directory.findDirectory(segment)
                 ?: directory.createDirectory(segment)
+                ?: directory.findDirectory(segment)
                 ?: throw FileNotFoundException("Could not create folder: $segment")
         }
 
         val fileName = parts.last()
-        return directory.findFile(fileName)?.takeIf { it.isFile }
-            ?: directory.createFile("text/markdown", fileName)
+        val existing = directory.findChildFile(fileName)
+        if (existing != null) return ResolvedFile(existing, existed = true)
+
+        val created = directory.createFile("text/markdown", fileName)
+            ?: directory.findChildFile(fileName)
             ?: throw FileNotFoundException("Could not create daily note: $fileName")
+        return ResolvedFile(created, existed = false)
     }
 
     private fun buildItemLine(item: QuickLogItem, appendedText: String): String {
@@ -65,24 +99,27 @@ class LogFileService(private val context: Context) {
             BulletType.Unordered -> "- "
             BulletType.None -> ""
         }
-        val timestamp = if (item.addTimestamp) {
-            LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")) + " "
-        } else {
-            ""
+        val timestamp = when (item.timestampMode) {
+            TimestampMode.None -> ""
+            TimestampMode.Minutes -> LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm")) + " "
+            TimestampMode.Seconds -> LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm:ss")) + " "
         }
-        val body = listOf(item.insertText.ifBlank { item.title }, appendedText)
+        val configuredText = item.insertText.ifBlank {
+            if (item.showTextBox) "" else item.title
+        }
+        val body = listOf(configuredText, appendedText)
             .map { it.trim() }
             .filter { it.isNotBlank() }
             .joinToString(" ")
         return bullet + timestamp + body
     }
 
-    private fun insertLine(content: String, item: QuickLogItem, line: String): String {
+    private fun insertLine(content: String, item: QuickLogItem, line: String, settings: AppSettings): String {
         val normalized = content.replace("\r\n", "\n")
         val lines = normalized.split('\n').toMutableList()
         if (lines.lastOrNull() == "") lines.removeAt(lines.lastIndex)
 
-        val target = parseConfiguredHeading(item.heading, item.headingLevel)
+        val target = parseConfiguredHeading(item.heading)
         val headingIndex = lines.indexOfFirst { candidate ->
             val parsed = parseHeading(candidate) ?: return@indexOfFirst false
             val textMatches = if (item.matchCase) {
@@ -90,34 +127,88 @@ class LogFileService(private val context: Context) {
             } else {
                 parsed.text.equals(target.text, ignoreCase = true)
             }
-            textMatches && (!item.matchHeadingLevel || parsed.level == target.level)
+            textMatches && (target.level == null || parsed.level == target.level)
         }
 
         if (headingIndex == -1) {
             if (lines.isNotEmpty() && lines.last().isNotBlank()) lines.add("")
-            lines.add("${"#".repeat(target.level)} ${target.text}")
+            lines.add("${"#".repeat(target.level ?: 2)} ${target.text}")
+            if (item.subheadingMode == SubheadingMode.Time) {
+                val subheadingLevel = ((target.level ?: 2) + 1).coerceAtMost(6)
+                lines.add("${"#".repeat(subheadingLevel)} ${timeSubheadingLabel(item.timeSubheading, settings)}")
+            }
             lines.add(line)
             return lines.joinToString("\n") + "\n"
         }
 
-        val headingLevel = parseHeading(lines[headingIndex])?.level ?: target.level
+        val headingLevel = parseHeading(lines[headingIndex])?.level ?: 2
         val sectionEnd = lines.indexOfFirstAfter(headingIndex + 1) { candidate ->
             val parsed = parseHeading(candidate)
-            parsed != null && parsed.level <= headingLevel
+            parsed?.level != null && parsed.level <= headingLevel
         }.let { if (it == -1) lines.size else it }
 
-        val bottomInsertAt = previousNonBlankIndex(lines, sectionEnd - 1) + 1
+        val sizeBeforeSubheading = lines.size
+        val insertionHeadingIndex = if (item.subheadingMode == SubheadingMode.Time) {
+            resolveTimeSubheading(lines, headingIndex, headingLevel, sectionEnd, item, settings)
+        } else {
+            headingIndex
+        }
+        val adjustedSectionEnd = sectionEnd + (lines.size - sizeBeforeSubheading)
+        val insertionHeadingLevel = parseHeading(lines[insertionHeadingIndex])?.level ?: headingLevel
+        val insertionSectionEnd = lines.indexOfFirstAfter(insertionHeadingIndex + 1) { candidate ->
+            val parsed = parseHeading(candidate)
+            parsed?.level != null && parsed.level <= insertionHeadingLevel
+        }.let { if (it == -1) adjustedSectionEnd else minOf(it, adjustedSectionEnd) }
+
+        val bottomInsertAt = previousNonBlankIndex(lines, insertionSectionEnd - 1) + 1
         val insertAt = when (item.insertPosition) {
-            InsertPosition.Top -> headingIndex + 1
-            InsertPosition.Bottom -> bottomInsertAt.coerceAtLeast(headingIndex + 1)
+            InsertPosition.Top -> insertionHeadingIndex + 1
+            InsertPosition.Bottom -> bottomInsertAt.coerceAtLeast(insertionHeadingIndex + 1)
         }
         lines.add(insertAt, line)
         return lines.joinToString("\n") + "\n"
     }
 
-    private fun parseConfiguredHeading(raw: String, fallbackLevel: Int): ParsedHeading {
+    private fun resolveTimeSubheading(
+        lines: MutableList<String>,
+        parentIndex: Int,
+        parentLevel: Int,
+        parentEnd: Int,
+        item: QuickLogItem,
+        settings: AppSettings,
+    ): Int {
+        val label = timeSubheadingLabel(item.timeSubheading, settings)
+        val configuredLevel = (parentLevel + 1).coerceAtMost(6)
+        val existingIndex = (parentIndex + 1 until parentEnd).firstOrNull { index ->
+            val parsed = parseHeading(lines[index]) ?: return@firstOrNull false
+            parsed.level == configuredLevel && parsed.text.equals(label, ignoreCase = true)
+        }
+        if (existingIndex != null || !item.timeSubheading.createMissing) {
+            return existingIndex ?: parentIndex
+        }
+
+        val insertAt = (previousNonBlankIndex(lines, parentEnd - 1) + 1).coerceAtLeast(parentIndex + 1)
+        lines.add(insertAt, "${"#".repeat(configuredLevel)} $label")
+        return insertAt
+    }
+
+    private fun timeSubheadingLabel(config: TimeSubheadingConfig, settings: AppSettings): String {
+        val now = LocalTime.now()
+        val current = now.hour * 60 + now.minute
+        val dayStart = settings.dayStartHour * 60 + settings.dayStartMinute
+        val first = config.firstHour * 60 + config.firstMinute
+        val last = config.lastHour * 60 + config.lastMinute
+        if (current < dayStart) return config.lateLabel
+        if (current < first) return config.earlyLabel
+
+        val bucket = first + ((current - first) / config.intervalMinutes) * config.intervalMinutes
+        if (bucket > last) return config.lateLabel
+        return "%02d:%02d".format(bucket / 60, bucket % 60)
+    }
+
+    private fun parseConfiguredHeading(raw: String): ParsedHeading {
         val parsed = parseHeading(raw)
-        return parsed ?: ParsedHeading(fallbackLevel.coerceIn(1, 6), raw.trim().ifBlank { "Log" })
+        return parsed ?: ParsedHeading(null, raw.trim().ifBlank { "Log" })
     }
 
     private fun parseHeading(line: String): ParsedHeading? {
@@ -148,8 +239,21 @@ class LogFileService(private val context: Context) {
             ?: throw FileNotFoundException("Could not write $uri")
     }
 
+    private fun DocumentFile.findDirectory(name: String): DocumentFile? =
+        findFile(name)?.takeIf { it.isDirectory }
+            ?: listFiles().firstOrNull { it.name == name && it.isDirectory }
+
+    private fun DocumentFile.findChildFile(name: String): DocumentFile? =
+        findFile(name)?.takeIf { it.isFile }
+            ?: listFiles().firstOrNull { it.name == name && it.isFile }
+
     private data class ParsedHeading(
-        val level: Int,
+        val level: Int?,
         val text: String,
+    )
+
+    private data class ResolvedFile(
+        val file: DocumentFile,
+        val existed: Boolean,
     )
 }

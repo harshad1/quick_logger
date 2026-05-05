@@ -10,7 +10,7 @@ Android quick-entry app for Markdown daily logs.
 - Create quick-log items with heading, insert position, Material icon, timestamp, bullet style, optional text prompt, and heading-match strictness.
 - Keep item display titles separate from inserted text.
 - Choose system, light, or dark appearance.
-- Offset the daily-file date by a configured number of minutes for after-midnight logging.
+- Choose the daily-file day-start time for after-midnight logging.
 - Tap an item to insert it into today's note and close the app.
 - If today's note is missing, the app creates folders/files, copies the interpolated template, then inserts the item.
 - If the configured heading is missing, the heading is appended at the end of the note.

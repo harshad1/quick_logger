@@ -30,7 +30,14 @@ class ConfigRepository(private val context: Context) {
     suspend fun saveItem(item: QuickLogItem) {
         updateConfig { config ->
             val updated = config.items.filterNot { it.id == item.id } + item
-            config.copy(items = updated.sortedBy { it.title.lowercase() })
+            config.copy(items = updated)
+        }
+    }
+
+    suspend fun reorderItems(items: List<QuickLogItem>) {
+        updateConfig { config ->
+            val reorderedIds = items.map { it.id }.toSet()
+            config.copy(items = items + config.items.filterNot { it.id in reorderedIds })
         }
     }
 
@@ -49,12 +56,16 @@ class ConfigRepository(private val context: Context) {
 
     suspend fun exportJson(): String = currentConfig().toJson()
 
-    suspend fun logItem(item: QuickLogItem, appendedText: String) {
+    suspend fun logItem(item: QuickLogItem, appendedText: String): LogUndoSnapshot =
         logFileService.logItem(currentConfig(), item, appendedText)
+
+    suspend fun undoLog(snapshot: LogUndoSnapshot) {
+        logFileService.restore(snapshot)
     }
 
     suspend fun readTemplateHeadings(): List<HeadingSuggestion> =
         logFileService.readTemplateHeadings(currentConfig().settings.templateUri?.let(Uri::parse))
+            .ifEmpty { DefaultHeadingSuggestions }
 
     private suspend fun updateConfig(transform: (QuickLoggerConfig) -> QuickLoggerConfig) {
         context.configDataStore.edit { preferences ->
@@ -65,3 +76,14 @@ class ConfigRepository(private val context: Context) {
         }
     }
 }
+
+private val DefaultHeadingSuggestions = listOf(
+    HeadingSuggestion(1, "Intention"),
+    HeadingSuggestion(2, "Habits"),
+    HeadingSuggestion(1, "Log:"),
+    HeadingSuggestion(2, "Consumption"),
+    HeadingSuggestion(2, "State"),
+    HeadingSuggestion(2, "Media"),
+    HeadingSuggestion(1, "Review:"),
+    HeadingSuggestion(1, "Notes"),
+)

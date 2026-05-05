@@ -3,6 +3,7 @@ package dev.quicklogger
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color as AndroidColor
 import android.net.Uri
 import android.os.Bundle
 import android.provider.DocumentsContract
@@ -12,27 +13,32 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -41,10 +47,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AdsClick
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -63,6 +71,7 @@ import androidx.compose.material.icons.filled.LocalCafe
 import androidx.compose.material.icons.filled.LocalLaundryService
 import androidx.compose.material.icons.filled.Medication
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Notes
 import androidx.compose.material.icons.filled.Payments
@@ -71,6 +80,7 @@ import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Science
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Sick
 import androidx.compose.material.icons.filled.SportsEsports
@@ -78,12 +88,12 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.TextSnippet
 import androidx.compose.material.icons.filled.Timer
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Undo
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -99,8 +109,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -109,6 +122,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -119,19 +133,29 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyGridState
 
 class MainActivity : ComponentActivity() {
     private val repository by lazy { ConfigRepository(applicationContext) }
@@ -153,6 +177,61 @@ private sealed interface Screen {
     data class EditItem(val item: QuickLogItem?) : Screen
 }
 
+@Composable
+private fun UndoSnackbarHost(hostState: SnackbarHostState) {
+    val colorScheme = MaterialTheme.colorScheme
+    val containerColor = colorScheme.surface
+    val contentColor = colorScheme.onSurface
+    val actionColor = colorScheme.primary
+    val snackbarShape = RoundedCornerShape(8.dp)
+    SnackbarHost(
+        hostState = hostState,
+        modifier = Modifier.imePadding(),
+    ) { snackbarData ->
+        Snackbar(
+            modifier = Modifier.border(
+                width = 1.dp,
+                color = colorScheme.outline.copy(alpha = 0.28f),
+                shape = snackbarShape,
+            ),
+            action = snackbarData.visuals.actionLabel?.let { actionLabel ->
+                {
+                    TextButton(onClick = { snackbarData.performAction() }) {
+                        Icon(
+                            Icons.Filled.Undo,
+                            contentDescription = null,
+                            tint = actionColor,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(actionLabel, color = actionColor)
+                    }
+                }
+            },
+            dismissAction = if (snackbarData.visuals.withDismissAction) {
+                {
+                    IconButton(onClick = { snackbarData.dismiss() }) {
+                        Icon(
+                            Icons.Filled.Close,
+                            contentDescription = "Dismiss",
+                            tint = contentColor,
+                        )
+                    }
+                }
+            } else {
+                null
+            },
+            actionOnNewLine = false,
+            shape = snackbarShape,
+            containerColor = containerColor,
+            contentColor = contentColor,
+            actionContentColor = actionColor,
+            dismissActionContentColor = contentColor,
+        ) {
+            Text(snackbarData.visuals.message)
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun QuickLoggerApp(repository: ConfigRepository, config: QuickLoggerConfig) {
@@ -162,12 +241,47 @@ private fun QuickLoggerApp(repository: ConfigRepository, config: QuickLoggerConf
     val scope = rememberCoroutineScope()
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var textItem by remember { mutableStateOf<QuickLogItem?>(null) }
+    var editorBackRequest by remember { mutableStateOf(0) }
     val darkTheme = shouldUseDarkTheme(config.settings.themeMode)
 
-    BackHandler(screen !is Screen.Home) { screen = Screen.Home }
+    suspend fun showLoggedSnackbar(item: QuickLogItem, snapshot: LogUndoSnapshot) {
+        val itemTitle = item.title.ifBlank { "item" }
+        snackbarHostState.currentSnackbarData?.dismiss()
+        val result = snackbarHostState.showSnackbar(
+            message = "Logged $itemTitle",
+            actionLabel = "Undo",
+            duration = SnackbarDuration.Long,
+            withDismissAction = true,
+        )
+        if (result == SnackbarResult.ActionPerformed) {
+            runCatching { repository.undoLog(snapshot) }
+                .onSuccess { snackbarHostState.showSnackbar("Undid $itemTitle", duration = SnackbarDuration.Short) }
+                .onFailure { snackbarHostState.showSnackbar(it.message ?: "Could not undo log item.") }
+        }
+    }
+
+    SideEffect {
+        activity?.window?.let { window ->
+            window.statusBarColor = AndroidColor.TRANSPARENT
+            window.navigationBarColor = AndroidColor.TRANSPARENT
+            WindowCompat.setDecorFitsSystemWindows(window, true)
+            WindowInsetsControllerCompat(window, window.decorView).apply {
+                isAppearanceLightStatusBars = !darkTheme
+                isAppearanceLightNavigationBars = !darkTheme
+            }
+        }
+    }
+
+    BackHandler(screen !is Screen.Home) {
+        if (screen is Screen.EditItem) {
+            editorBackRequest++
+        } else {
+            screen = Screen.Home
+        }
+    }
 
     Scaffold(
-        snackbarHost = { SnackbarHost(snackbarHostState) },
+        snackbarHost = { UndoSnackbarHost(snackbarHostState) },
         topBar = {
             CenterAlignedTopAppBar(
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -185,7 +299,13 @@ private fun QuickLoggerApp(repository: ConfigRepository, config: QuickLoggerConf
                 },
                 navigationIcon = {
                     if (screen !is Screen.Home) {
-                        IconButton(onClick = { screen = Screen.Home }) {
+                        IconButton(onClick = {
+                            if (screen is Screen.EditItem) {
+                                editorBackRequest++
+                            } else {
+                                screen = Screen.Home
+                            }
+                        }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                         }
                     }
@@ -218,12 +338,15 @@ private fun QuickLoggerApp(repository: ConfigRepository, config: QuickLoggerConf
                         } else {
                             scope.launch {
                                 runCatching { repository.logItem(item, "") }
-                                    .onSuccess { activity?.finish() }
+                                    .onSuccess { snapshot -> showLoggedSnackbar(item, snapshot) }
                                     .onFailure { snackbarHostState.showSnackbar(it.message ?: "Could not write log item.") }
                             }
                         }
                     },
-                    onItemLongClick = { screen = Screen.EditItem(it) },
+                    onItemEdit = { screen = Screen.EditItem(it) },
+                    onReorder = { reordered ->
+                        scope.launch { repository.reorderItems(reordered) }
+                    },
                     onSettingsClick = { screen = Screen.Settings },
                     onAddClick = { screen = Screen.EditItem(null) },
                 )
@@ -242,9 +365,10 @@ private fun QuickLoggerApp(repository: ConfigRepository, config: QuickLoggerConf
                 is Screen.EditItem -> ItemEditorScreen(
                     initial = current.item,
                     repository = repository,
-                    onSave = { item ->
+                    backRequest = editorBackRequest,
+                    onDone = { item ->
                         scope.launch {
-                            repository.saveItem(item)
+                            if (item != null) repository.saveItem(item)
                             screen = Screen.Home
                         }
                     },
@@ -269,7 +393,7 @@ private fun QuickLoggerApp(repository: ConfigRepository, config: QuickLoggerConf
                 textItem = null
                 scope.launch {
                     runCatching { repository.logItem(item, text) }
-                        .onSuccess { activity?.finish() }
+                        .onSuccess { snapshot -> showLoggedSnackbar(item, snapshot) }
                         .onFailure { snackbarHostState.showSnackbar(it.message ?: "Could not write log item.") }
                 }
             },
@@ -281,33 +405,79 @@ private fun QuickLoggerApp(repository: ConfigRepository, config: QuickLoggerConf
 private fun HomeScreen(
     config: QuickLoggerConfig,
     onItemClick: (QuickLogItem) -> Unit,
-    onItemLongClick: (QuickLogItem) -> Unit,
+    onItemEdit: (QuickLogItem) -> Unit,
+    onReorder: (List<QuickLogItem>) -> Unit,
     onSettingsClick: () -> Unit,
     onAddClick: () -> Unit,
 ) {
+    var orderedItems by remember(config.items) { mutableStateOf(config.items) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    val gridState = rememberLazyGridState()
+    val hapticFeedback = LocalHapticFeedback.current
+    val setupVisible = config.settings.logRootUri == null || config.settings.templateUri == null
+    val filteredItems = remember(orderedItems, searchQuery) {
+        orderedItems.filterBySearch(searchQuery)
+    }
+    val isFiltering = searchQuery.isNotBlank()
+    val reorderableGridState = rememberReorderableLazyGridState(gridState) { from, to ->
+        if (isFiltering) return@rememberReorderableLazyGridState
+        orderedItems = orderedItems.toMutableList().also { list ->
+            list.add(to.index, list.removeAt(from.index))
+        }
+        hapticFeedback.performHapticFeedback(HapticFeedbackType.SegmentFrequentTick)
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 18.dp),
     ) {
-        if (config.settings.logRootUri == null || config.settings.templateUri == null) {
+        if (setupVisible) {
             SetupCard(onSettingsClick)
         }
         if (config.items.isEmpty()) {
             EmptyState(onAddClick)
         } else {
+            SearchField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 6.dp),
+            )
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(108.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                state = gridState,
+                columns = GridCells.Adaptive(156.dp),
                 contentPadding = PaddingValues(vertical = 12.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                items(config.items, key = { it.id }) { item ->
-                    QuickLogTile(
-                        item = item,
-                        onClick = { onItemClick(item) },
-                        onLongClick = { onItemLongClick(item) },
-                    )
+                itemsIndexed(filteredItems, key = { _, item -> item.id }) { _, item ->
+                    ReorderableItem(reorderableGridState, key = item.id) { isDragging ->
+                        val dragModifier = if (isFiltering) {
+                            Modifier
+                        } else {
+                            Modifier.longPressDraggableHandle(
+                                onDragStarted = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                                },
+                                onDragStopped = {
+                                    hapticFeedback.performHapticFeedback(HapticFeedbackType.GestureEnd)
+                                    onReorder(orderedItems)
+                                },
+                            )
+                        }
+                        QuickLogTile(
+                            item = item,
+                            dragging = isDragging,
+                            onClick = { onItemClick(item) },
+                            onEditClick = { onItemEdit(item) },
+                            modifier = dragModifier,
+                        )
+                    }
                 }
             }
         }
@@ -315,9 +485,48 @@ private fun HomeScreen(
 }
 
 @Composable
+private fun SearchField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        label = { Text("Filter items") },
+        leadingIcon = {
+            Icon(Icons.Filled.Search, contentDescription = null)
+        },
+        trailingIcon = {
+            if (value.isNotBlank()) {
+                IconButton(onClick = { onValueChange("") }) {
+                    Icon(Icons.Filled.Close, contentDescription = "Clear filter")
+                }
+            }
+        },
+        singleLine = true,
+        shape = RoundedCornerShape(22.dp),
+    )
+}
+
+private fun List<QuickLogItem>.filterBySearch(query: String): List<QuickLogItem> {
+    val terms = query.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    if (terms.isEmpty()) return this
+    return filter { item ->
+        val haystack = listOf(item.title, item.insertText, item.heading, item.icon)
+            .joinToString(" ")
+            .lowercase()
+        terms.all { term -> term.lowercase() in haystack }
+    }
+}
+
+@Composable
 private fun SetupCard(onSettingsClick: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = RoundedCornerShape(26.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -361,28 +570,55 @@ private fun EmptyState(onAddClick: () -> Unit) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun QuickLogTile(item: QuickLogItem, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun QuickLogTile(
+    item: QuickLogItem,
+    dragging: Boolean,
+    onClick: () -> Unit,
+    onEditClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.86f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (dragging) 6.dp else 1.dp),
         shape = RoundedCornerShape(24.dp),
-        modifier = Modifier
+        modifier = modifier
             .height(112.dp)
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick),
+            .combinedClickable(onClick = onClick),
     ) {
-        Column(
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(12.dp),
-            verticalArrangement = Arrangement.SpaceBetween,
         ) {
-            Icon(
-                imageVector = iconFor(item.icon).vector,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(28.dp),
-            )
-            Column {
+            Row(
+                modifier = Modifier.align(Alignment.TopStart),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(
+                    imageVector = iconFor(item.icon).vector,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(28.dp),
+                )
+            }
+            IconButton(
+                onClick = onEditClick,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .size(34.dp),
+            ) {
+                Icon(
+                    Icons.Filled.MoreVert,
+                    contentDescription = "Edit item",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(end = 18.dp),
+            ) {
                 Text(
                     item.title.ifBlank { "Untitled" },
                     fontWeight = FontWeight.Black,
@@ -411,9 +647,6 @@ private fun SettingsScreen(
 ) {
     val context = LocalContext.current
     var draft by remember(settings) { mutableStateOf(settings) }
-    var delayText by remember(settings.dayBoundaryDelayMinutes) {
-        mutableStateOf(settings.dayBoundaryDelayMinutes.toString())
-    }
     val scope = rememberCoroutineScope()
     fun updateSettings(updated: AppSettings) {
         draft = updated
@@ -492,23 +725,37 @@ private fun SettingsScreen(
                 onValueChange = { updateSettings(draft.copy(dailyPathPattern = it)) },
                 label = { Text("Daily path pattern") },
                 supportingText = {
-                    Text("Today: ${DailyPathPattern.render(draft.dailyPathPattern, DailyPathPattern.effectiveDate(draft.dayBoundaryDelayMinutes))}")
+                    Text(
+                        "Today: ${
+                            DailyPathPattern.render(
+                                draft.dailyPathPattern,
+                                DailyPathPattern.effectiveDate(draft.dayStartHour, draft.dayStartMinute),
+                            )
+                        }",
+                    )
                 },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
             )
-            OutlinedTextField(
-                value = delayText,
-                onValueChange = { value ->
-                    if (value.all(Char::isDigit)) {
-                        delayText = value
-                        updateSettings(draft.copy(dayBoundaryDelayMinutes = value.toIntOrNull() ?: 0))
-                    }
-                },
-                label = { Text("Day boundary delay, minutes") },
-                supportingText = { Text("Used only for choosing the daily file after midnight.") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
+            Text("Day starts at", fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SmallDropdown(
+                    value = "%02d".format(draft.dayStartHour),
+                    options = (0..23).map { "%02d".format(it) },
+                    onSelected = { updateSettings(draft.copy(dayStartHour = it.toInt())) },
+                    modifier = Modifier.weight(1f),
+                )
+                SmallDropdown(
+                    value = "%02d".format(draft.dayStartMinute),
+                    options = (0..59).map { "%02d".format(it) },
+                    onSelected = { updateSettings(draft.copy(dayStartMinute = it.toInt())) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text(
+                "Before this time, logs still go to the previous daily file.",
+                color = MaterialTheme.colorScheme.secondary,
+                fontSize = 12.sp,
             )
         }
 
@@ -551,7 +798,9 @@ private fun SettingsScreen(
 @Composable
 private fun SettingsCard(title: String, content: @Composable () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         shape = RoundedCornerShape(28.dp),
     ) {
         Column(
@@ -582,15 +831,43 @@ private fun UriPreview(uri: String?, tree: Boolean) {
 private fun ItemEditorScreen(
     initial: QuickLogItem?,
     repository: ConfigRepository,
-    onSave: (QuickLogItem) -> Unit,
+    backRequest: Int,
+    onDone: (QuickLogItem?) -> Unit,
     onDelete: (() -> Unit)?,
 ) {
-    var item by remember(initial?.id) { mutableStateOf(initial ?: QuickLogItem()) }
+    val startingItem = remember(initial?.id) { initial ?: QuickLogItem() }
+    var item by remember(initial?.id) { mutableStateOf(startingItem) }
     var iconPickerOpen by remember { mutableStateOf(false) }
-    var suggestionsOpen by remember { mutableStateOf(false) }
     var headingSuggestions by remember { mutableStateOf(emptyList<HeadingSuggestion>()) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
+    var handledBackRequest by remember(initial?.id) { mutableStateOf(backRequest) }
 
-    LaunchedEffect(Unit) {
+    fun isValid(candidate: QuickLogItem): Boolean =
+        candidate.heading.isNotBlank() &&
+            candidate.title.isNotBlank() &&
+            (candidate.insertText.isNotBlank() || candidate.showTextBox)
+
+    fun hasMeaningfulChanges(candidate: QuickLogItem): Boolean =
+        startingItem != candidate
+
+    fun leaveEditor() {
+        when {
+            isValid(item) -> onDone(item)
+            hasMeaningfulChanges(item) -> showDiscardDialog = true
+            else -> onDone(null)
+        }
+    }
+
+    BackHandler { leaveEditor() }
+
+    LaunchedEffect(backRequest) {
+        if (backRequest != handledBackRequest) {
+            handledBackRequest = backRequest
+            leaveEditor()
+        }
+    }
+
+    LaunchedEffect(initial?.id) {
         headingSuggestions = repository.readTemplateHeadings()
     }
 
@@ -620,7 +897,6 @@ private fun ItemEditorScreen(
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Text("Icon", fontWeight = FontWeight.Bold)
-                Text("Tap to choose a flat Material symbol.", color = MaterialTheme.colorScheme.secondary)
             }
         }
 
@@ -635,70 +911,40 @@ private fun ItemEditorScreen(
             value = item.insertText,
             onValueChange = { item = item.copy(insertText = it) },
             label = { Text("Text to insert") },
-            supportingText = { Text("Example: 200mg ibuprofen") },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
         )
-        Row(
+        HeadingComboBox(
+            value = item.heading,
+            suggestions = headingSuggestions,
+            onValueChange = { item = item.copy(heading = it) },
+            onSuggestion = { suggestion ->
+                item = item.copy(heading = suggestion.label)
+            },
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            OutlinedTextField(
-                value = item.heading,
-                onValueChange = { item = item.copy(heading = it) },
-                label = { Text("Heading") },
-                supportingText = { Text("Rendered: ${renderedHeading(item.heading, item.headingLevel)}") },
-                modifier = Modifier.weight(1f),
-                singleLine = true,
-            )
-            Box {
-                OutlinedButton(
-                    onClick = { suggestionsOpen = true },
-                    enabled = headingSuggestions.isNotEmpty(),
-                    modifier = Modifier.padding(top = 8.dp),
-                ) {
-                    Text("Suggest")
-                }
-                DropdownMenu(
-                    expanded = suggestionsOpen,
-                    onDismissRequest = { suggestionsOpen = false },
-                ) {
-                    headingSuggestions.forEach { suggestion ->
-                        DropdownMenuItem(
-                            text = { Text(suggestion.label) },
-                            onClick = {
-                                item = item.copy(heading = suggestion.text, headingLevel = suggestion.level)
-                                suggestionsOpen = false
+        )
+
+        ToggleRow("Match case", item.matchCase) { item = item.copy(matchCase = it) }
+        ToggleRow("Show textbox before logging", item.showTextBox) { item = item.copy(showTextBox = it) }
+
+        Text("Timestamp", fontWeight = FontWeight.Bold)
+        FlowRowCompat(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TimestampMode.entries.forEach { mode ->
+                FilterChip(
+                    selected = item.timestampMode == mode,
+                    onClick = { item = item.copy(timestampMode = mode) },
+                    label = {
+                        Text(
+                            when (mode) {
+                                TimestampMode.None -> "None"
+                                TimestampMode.Minutes -> "HH:mm"
+                                TimestampMode.Seconds -> "HH:mm:ss"
                             },
                         )
-                    }
-                }
-            }
-        }
-        OutlinedTextField(
-            value = renderedHeading(item.heading, item.headingLevel),
-            onValueChange = {},
-            label = { Text("Rendered heading") },
-            modifier = Modifier.fillMaxWidth(),
-            enabled = false,
-            singleLine = true,
-        )
-        Text("Heading level", fontWeight = FontWeight.Bold)
-        FlowRowCompat(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            (1..6).forEach { level ->
-                FilterChip(
-                    selected = item.headingLevel == level,
-                    onClick = { item = item.copy(headingLevel = level) },
-                    label = { Text("#".repeat(level)) },
+                    },
                 )
             }
         }
-
-        ToggleRow("Match case", item.matchCase) { item = item.copy(matchCase = it) }
-        ToggleRow("Require same heading level", item.matchHeadingLevel) { item = item.copy(matchHeadingLevel = it) }
-        ToggleRow("Add timestamp (HH:mm)", item.addTimestamp) { item = item.copy(addTimestamp = it) }
-        ToggleRow("Show textbox before logging", item.showTextBox) { item = item.copy(showTextBox = it) }
 
         Text("Insert position", fontWeight = FontWeight.Bold)
         FlowRowCompat(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -722,13 +968,11 @@ private fun ItemEditorScreen(
             }
         }
 
-        Button(
-            onClick = { onSave(item) },
-            enabled = item.heading.isNotBlank() && item.title.isNotBlank() && item.insertText.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Text("Save item")
-        }
+        Text(
+            if (isValid(item)) "Back saves this item." else "Complete required fields, or go back to discard.",
+            color = MaterialTheme.colorScheme.secondary,
+            fontSize = 12.sp,
+        )
 
         if (onDelete != null) {
             OutlinedButton(onClick = onDelete, modifier = Modifier.fillMaxWidth()) {
@@ -749,6 +993,24 @@ private fun ItemEditorScreen(
             },
         )
     }
+
+    if (showDiscardDialog) {
+        AlertDialog(
+            onDismissRequest = { showDiscardDialog = false },
+            title = { Text("Discard incomplete item?") },
+            text = { Text("This item is not complete enough to create or update.") },
+            confirmButton = {
+                Button(onClick = { onDone(null) }) {
+                    Text("Discard")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDiscardDialog = false }) {
+                    Text("Keep editing")
+                }
+            },
+        )
+    }
 }
 
 @Composable
@@ -759,6 +1021,97 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
     ) {
         Text(label, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
         Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun SmallDropdown(
+    value: String,
+    options: List<String>,
+    onSelected: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier) {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text(value)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            options.forEach { option ->
+                DropdownMenuItem(
+                    text = { Text(option) },
+                    onClick = {
+                        onSelected(option)
+                        expanded = false
+                    },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeadingComboBox(
+    value: String,
+    suggestions: List<HeadingSuggestion>,
+    onValueChange: (String) -> Unit,
+    onSuggestion: (HeadingSuggestion) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var showAllSuggestions by remember { mutableStateOf(false) }
+    val filtered = if (showAllSuggestions) {
+        suggestions
+    } else {
+        val query = value.trimStart('#').trim()
+        suggestions.filter {
+            query.isBlank() || it.text.contains(query, ignoreCase = true)
+        }
+    }
+
+    Box(modifier = modifier) {
+        OutlinedTextField(
+            value = value,
+            onValueChange = {
+                onValueChange(it)
+                showAllSuggestions = false
+                expanded = true
+            },
+            label = { Text("Heading") },
+            trailingIcon = {
+                IconButton(
+                    onClick = {
+                        showAllSuggestions = true
+                        expanded = true
+                    },
+                ) {
+                    Icon(Icons.Filled.ArrowDropDown, contentDescription = "Show headings")
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            if (filtered.isEmpty()) {
+                DropdownMenuItem(
+                    text = { Text("No headings found") },
+                    enabled = false,
+                    onClick = {},
+                )
+            }
+            filtered.forEach { suggestion ->
+                DropdownMenuItem(
+                    text = { Text(suggestion.label) },
+                    onClick = {
+                        onSuggestion(suggestion)
+                        expanded = false
+                    },
+                )
+            }
+        }
     }
 }
 
@@ -780,6 +1133,15 @@ private fun FlowRowCompat(
 @Composable
 private fun TextEntryDialog(item: QuickLogItem, onDismiss: () -> Unit, onSubmit: (String) -> Unit) {
     var text by rememberSaveable { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    LaunchedEffect(Unit) {
+        delay(120)
+        focusRequester.requestFocus()
+        keyboardController?.show()
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(item.title.ifBlank { "Add log text" }) },
@@ -788,7 +1150,9 @@ private fun TextEntryDialog(item: QuickLogItem, onDismiss: () -> Unit, onSubmit:
                 value = text,
                 onValueChange = { text = it },
                 label = { Text("Append text") },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
             )
         },
         confirmButton = {
@@ -852,19 +1216,31 @@ private fun QuickLoggerTheme(themeMode: ThemeMode, content: @Composable () -> Un
     val darkTheme = shouldUseDarkTheme(themeMode)
     val colors = if (darkTheme) {
         darkColorScheme(
-            primary = Color(0xFFE6D18B),
-            onPrimary = Color(0xFF1C1607),
-            secondary = Color(0xFFEAB676),
-            surface = Color(0xFF17211D),
-            background = Color(0xFF0E1512),
+            primary = Color(0xFFF4F4F5),
+            onPrimary = Color(0xFF18181B),
+            secondary = Color(0xFFB4B4BC),
+            surface = Color(0xFF303034),
+            onSurface = Color(0xFFF4F4F5),
+            background = Color(0xFF0B0B0D),
+            onBackground = Color(0xFFF4F4F5),
+            inversePrimary = Color(0xFF18181B),
+            inverseSurface = Color(0xFFF4F4F5),
+            inverseOnSurface = Color(0xFF18181B),
+            outline = Color(0xFF6F6F78),
         )
     } else {
         lightColorScheme(
-            primary = Color(0xFF1E3A34),
+            primary = Color(0xFF18181B),
             onPrimary = Color.White,
-            secondary = Color(0xFFB26B2B),
-            surface = Color(0xFFFAF7F0),
-            background = Color(0xFFFAF7F0),
+            secondary = Color(0xFF52525B),
+            surface = Color.White,
+            onSurface = Color(0xFF18181B),
+            background = Color(0xFFE9EAEC),
+            onBackground = Color(0xFF18181B),
+            inversePrimary = Color(0xFFF4F4F5),
+            inverseSurface = Color(0xFF18181B),
+            inverseOnSurface = Color(0xFFF4F4F5),
+            outline = Color(0xFFB8BAC0),
         )
     }
     MaterialTheme(
@@ -887,22 +1263,13 @@ private fun shouldUseDarkTheme(mode: ThemeMode): Boolean = when (mode) {
 private fun appBackground(darkTheme: Boolean): Brush =
     if (darkTheme) {
         Brush.verticalGradient(
-            colors = listOf(Color(0xFF0E1512), Color(0xFF16231D), Color(0xFF251F13)),
+            colors = listOf(Color(0xFF0B0B0D), Color(0xFF161619)),
         )
     } else {
         Brush.verticalGradient(
-            colors = listOf(Color(0xFFFAF7F0), Color(0xFFE4EFE7), Color(0xFFF9E6BA)),
+            colors = listOf(Color(0xFFF1F2F4), Color(0xFFE2E3E6)),
         )
     }
-
-private val headingRegex = Regex("^(#{1,6})\\s+(.+?)\\s*#*\\s*$")
-
-private fun renderedHeading(heading: String, fallbackLevel: Int): String {
-    val match = headingRegex.matchEntire(heading.trim())
-    val level = match?.groupValues?.get(1)?.length ?: fallbackLevel
-    val text = match?.groupValues?.get(2)?.trim() ?: heading.trim().ifBlank { "Log" }
-    return "${"#".repeat(level.coerceIn(1, 6))} $text"
-}
 
 private fun readableUri(context: Context, uriString: String, tree: Boolean): String {
     val uri = runCatching { Uri.parse(uriString) }.getOrNull() ?: return uriString

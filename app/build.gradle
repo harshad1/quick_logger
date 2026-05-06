@@ -8,37 +8,37 @@ if (signingPropertiesFile.exists()) {
 }
 
 android {
-    namespace "dev.quicklogger"
-    compileSdk 36
+    namespace = "dev.quicklogger"
+    compileSdk = 36
 
     defaultConfig {
-        applicationId "dev.quicklogger"
-        minSdk 26
-        targetSdk 36
-        versionCode 1
-        versionName "0.1.0"
+        applicationId = "dev.quicklogger"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 1
+        versionName = "0.1.0"
     }
 
     buildFeatures {
-        compose true
+        compose = true
     }
 
     signingConfigs {
         release {
             if (signingPropertiesFile.exists()) {
-                storeFile rootProject.file(signingProperties["storeFile"])
-                storePassword signingProperties["storePassword"]
-                keyAlias signingProperties["keyAlias"]
-                keyPassword signingProperties["keyPassword"]
+                storeFile = rootProject.file(signingProperties["storeFile"])
+                storePassword = signingProperties["storePassword"]
+                keyAlias = signingProperties["keyAlias"]
+                keyPassword = signingProperties["keyPassword"]
             }
         }
     }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
-            minifyEnabled false
-            shrinkResources false
+            signingConfig = signingConfigs.release
+            minifyEnabled = false
+            shrinkResources = false
         }
     }
 }

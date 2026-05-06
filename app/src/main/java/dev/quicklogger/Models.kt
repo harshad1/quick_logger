@@ -82,7 +82,11 @@ data class QuickLogItem(
             matchCase = json.optBoolean("matchCase", false),
             insertPosition = enumValueOrDefault(json.optString("insertPosition"), InsertPosition.Bottom),
             title = json.optString("title", ""),
-            insertText = json.optString("insertText").ifBlank { json.optString("title", "") },
+            insertText = if (json.has("insertText")) {
+                json.optString("insertText", "")
+            } else {
+                json.optString("title", "")
+            },
             icon = json.optString("icon", "edit"),
             timestampMode = if (json.has("timestampMode")) {
                 enumValueOrDefault(json.optString("timestampMode"), TimestampMode.Minutes)

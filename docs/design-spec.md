@@ -167,8 +167,10 @@ Cards are used for individual repeated items and settings groups. Do not nest ca
 - Icon well: `72.dp` circle
 - Icon inside well: `36.dp`
 - Icon-to-label gap: `14.dp`
+- Save button sits at the top of the editor and spans the available width
+- Save is enabled only when the item has unsaved changes and is valid
 - Option groups use `FilterChip` in `FlowRowCompat` with `8.dp` horizontal spacing
-- Back saves when the item is valid; incomplete changed items show a discard dialog.
+- Back prompts with a "Changes not saved" dialog when the item has unsaved changes.
 - Empty `insertText` is valid when `showTextBox` is enabled.
 
 ### Snackbar
@@ -223,8 +225,8 @@ Adaptive launcher foreground:
 
 ## Interaction Conventions
 
-- Back from editor saves valid items.
-- Back from editor prompts discard for changed but incomplete items.
+- Back from editor exits immediately when there are no unsaved changes.
+- Back from editor prompts before discarding any unsaved changes.
 - Quick-log tile click logs immediately unless `showTextBox` is enabled.
 - If `showTextBox` is enabled, show the text entry dialog before logging.
 - Successful logs show a snackbar with Undo.

@@ -52,7 +52,7 @@ fun ItemEditorScreen(
     var item by remember(initial?.id) { mutableStateOf(startingItem) }
     var iconPickerOpen by remember { mutableStateOf(false) }
     var headingSuggestions by remember { mutableStateOf(emptyList<HeadingSuggestion>()) }
-    var showDiscardDialog by remember { mutableStateOf(false) }
+    var showUnsavedChangesDialog by remember { mutableStateOf(false) }
     var handledBackRequest by remember(initial?.id) { mutableStateOf(backRequest) }
 
     fun isValid(candidate: QuickLogItem): Boolean =
@@ -63,11 +63,14 @@ fun ItemEditorScreen(
     fun hasMeaningfulChanges(candidate: QuickLogItem): Boolean =
         startingItem != candidate
 
+    val hasUnsavedChanges = hasMeaningfulChanges(item)
+    val saveEnabled = hasUnsavedChanges && isValid(item)
+
     fun leaveEditor() {
-        when {
-            isValid(item) -> onDone(item)
-            hasMeaningfulChanges(item) -> showDiscardDialog = true
-            else -> onDone(null)
+        if (hasUnsavedChanges) {
+            showUnsavedChangesDialog = true
+        } else {
+            onDone(null)
         }
     }
 
@@ -91,6 +94,14 @@ fun ItemEditorScreen(
             .padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
+        Button(
+            onClick = { onDone(item) },
+            enabled = saveEnabled,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text("Save")
+        }
+
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
@@ -182,7 +193,7 @@ fun ItemEditorScreen(
         }
 
         Text(
-            if (isValid(item)) "Back saves this item." else "Complete required fields, or go back to discard.",
+            if (isValid(item)) "Changes are saved only when you tap Save." else "Complete required fields before saving.",
             color = MaterialTheme.colorScheme.secondary,
             fontSize = 12.sp,
         )
@@ -207,18 +218,18 @@ fun ItemEditorScreen(
         )
     }
 
-    if (showDiscardDialog) {
+    if (showUnsavedChangesDialog) {
         AlertDialog(
-            onDismissRequest = { showDiscardDialog = false },
-            title = { Text("Discard incomplete item?") },
-            text = { Text("This item is not complete enough to create or update.") },
+            onDismissRequest = { showUnsavedChangesDialog = false },
+            title = { Text("Changes not saved") },
+            text = { Text("Discard your unsaved changes?") },
             confirmButton = {
                 Button(onClick = { onDone(null) }) {
                     Text("Discard")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showDiscardDialog = false }) {
+                TextButton(onClick = { showUnsavedChangesDialog = false }) {
                     Text("Keep editing")
                 }
             },
